@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -21,6 +22,10 @@ namespace WifiReconnector
             _config = GetConfig();
             _waiter = new AutoResetEvent(false);
 
+            Logger.Start();
+
+            AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+
             NetworkInformation.NetworkStatusChanged += OnNetworkStatusChanged;
 
             await WaitForEventsAsync();
@@ -29,6 +34,12 @@ namespace WifiReconnector
         private static void OnNetworkStatusChanged(object _)
         {
             _waiter.Set();
+        }
+
+        private static void OnUnhandledException(object _, UnhandledExceptionEventArgs e)
+        {
+            Logger.Log("Unhandled exception thrown:");
+            Logger.Log($"{e.ExceptionObject as Exception}");
         }
 
         private static Config GetConfig()
@@ -41,7 +52,16 @@ namespace WifiReconnector
         {
             while (_waiter.WaitOne())
             {
-                await ReconnectAsync();
+                try
+                {
+                    await ReconnectAsync();
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"Exception thrown: {e}");
+                    Logger.Log("Reconnection seems failed with exceptions, retry...");
+                    _waiter.Set();
+                }
             }
         }
 
@@ -53,7 +73,13 @@ namespace WifiReconnector
             {
                 Logger.Log("Lost connection, start to reconnect...");
 
-                var adapters = await WiFiAdapter.FindAllAdaptersAsync();
+                IReadOnlyList<WiFiAdapter> adapters = null;
+                while (adapters == null || adapters.Count == 0)
+                {
+                    adapters = await WiFiAdapter.FindAllAdaptersAsync();
+                    await Task.Yield();
+                }
+
                 var adapter = adapters.First();
                 var report = adapter.NetworkReport;
                 foreach (var target in report.AvailableNetworks.OrderByDescending(n => n.NetworkRssiInDecibelMilliwatts))
@@ -85,12 +111,12 @@ namespace WifiReconnector
     {
         private static string _logPath = Path.Combine(Directory.GetCurrentDirectory(), @"log.txt");
 
-        private static StreamWriter _logStream = CreateWriter();
+        private static StreamWriter _logStream;
 
-        private static StreamWriter CreateWriter()
+        public static void Start()
         {
             var logFile = new FileStream(_logPath, FileMode.Append, FileAccess.Write, FileShare.Read);
-            return new StreamWriter(logFile);
+            _logStream = new StreamWriter(logFile);
         }
 
         public static void Log(string msg)
