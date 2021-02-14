@@ -115,7 +115,7 @@ namespace WifiReconnector
 
         public static void Start()
         {
-            var logFile = new FileStream(_logPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+            var logFile = new FileStream(_logPath, FileMode.Create, FileAccess.Write, FileShare.Read);
             _logStream = new StreamWriter(logFile);
         }
 
